@@ -17,23 +17,25 @@ import (
 // corrupted or missing cookies.
 //
 // It returns an error if Load was not called.
-//
-// TODO(rog) implement decent semantics for concurrent use.
 func (j *Jar) Save() error {
 	if j.filename == "" {
 		return errors.New("save called on non-loaded cookie jar")
 	}
-	// TODO this is too simplistic - if there is another client
-	// that is also saving cookies, those cookies may be overwritten.
-	// To do it properly, we probably need a file lock, read
-	// the cookie file, merge any cookies that have been saved there
-	// and then write it.
-	f, err := os.Create(j.filename)
+	var af AtomicFile
+	f, err := af.Create(j.filename)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return j.WriteTo(f)
+	err = j.WriteTo(f)
+	if err != nil {
+		af.Cancel()
+		return err
+	}
+	err = af.Close()
+	if af.IsRetry(err) {
+		// TODO: Read again, merge, save.
+	}
+	return err
 }
 
 // Load uses j.ReadFrom to read cookies
