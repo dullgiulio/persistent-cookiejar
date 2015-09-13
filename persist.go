@@ -44,7 +44,15 @@ func (a *atomicFile) cancel() error {
 	return err
 }
 
-func (a *atomicFile) close() error {
+func (a *atomicFile) reset() error {
+	if a.file == nil {
+		return nil
+	}
+	a.ctime = time.Now()
+	return a.file.Truncate(0)
+}
+
+func (a *atomicFile) commit() error {
 	if a.file == nil {
 		return nil
 	}

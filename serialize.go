@@ -18,18 +18,21 @@ import (
 //
 // It returns an error if Load was not called.
 func (j *Jar) Save() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 	if j.filename == "" {
 		return errors.New("save called on non-loaded cookie jar")
 	}
+	// Create a temporary file
+	var af atomicFile
+	f, err := af.create(j.filename)
+	if err != nil {
+		return err
+	}
+	// Repeat until success.
 	for {
-		// Create a temporary file
-		var af atomicFile
-		f, err := af.create(j.filename)
-		if err != nil {
-			return err
-		}
 		// Write out to the temporary file
-		err = j.WriteTo(f)
+		encodeJSON(f, j.entries)
 		if err != nil {
 			// On write error, remove the temp file
 			af.cancel()
@@ -37,26 +40,26 @@ func (j *Jar) Save() error {
 		}
 		// Try replacing the original file with our temporary one.
 		// If the file to be replaced is newer, close() fails.
-		err = af.close()
+		err = af.commit()
 		// Success.
 		if err == nil {
 			return nil
 		}
-		// We failed, remove the temporary file.
-		af.cancel()
 		// Some error occurred, not related to retrying mechanism.
 		if !af.isRetry(err) {
+			// We failed, remove the temporary file.
+			af.cancel()
 			return err
 		}
+		af.reset()
 		// Load the entries from the file to overwrite.
 		m := make(map[string]map[string]entry)
 		if err := loadJSON(j.filename, m); err != nil {
+			// The newer write was bogus, ignore it and try again.
 			continue
 		}
 		// Merge them on top of ours (they are newer).
-		j.mu.Lock()
 		j.mergeEntries(m)
-		j.mu.Unlock()
 	}
 }
 
